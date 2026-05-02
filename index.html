@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>訪問薬剤師 薬歴入力支援</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='10' y='35' width='80' height='30' rx='15' fill='%232c5f8a'/><rect x='10' y='35' width='40' height='30' rx='15' fill='%2363b3ed'/><text x='50' y='80' font-size='12' text-anchor='middle' fill='%23fff' font-family='sans-serif'>薬</text></svg>">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Meiryo', 'メイリオ', sans-serif;
+            background: #f0f4f8;
+            color: #333;
+            padding: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h2 { font-size: 16px; color: #2c5f8a; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid #c5d9ec; }
+
+        /* タイトル＋設定ボタンを1行に配置 */
+        .header-row {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #2c5f8a;
+            gap: 10px;
+        }
+        .header-row h1 {
+            font-size: 20px; color: #2c5f8a;
+            margin: 0; padding: 0; border: none;
+            text-align: center;
+        }
+        .header-actions {
+            display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+        }
+        .header-actions .status-indicator { font-size: 12px; color: #555; white-space: nowrap; }
+
+        .api-section {
+            background: #fff8e1; border: 1px solid #f0c040; border-radius: 8px;
+            padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+        }
+        .api-section label { font-size: 13px; font-weight: bold; color: #7a5c00; white-space: nowrap; }
+        .api-section input { flex: 1; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; font-family: monospace; }
+
+        .slack-url-display {
+            flex: 1; font-family: monospace; font-size: 13px; color: #555;
+            background: #fff; padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px;
+        }
+
+        .section { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+        .section-header { margin-bottom: 8px; }
+        .section-label { font-size: 15px; font-weight: bold; color: #2c5f8a; }
+        .section-desc { font-size: 11px; color: #888; margin-left: 6px; }
+
+        textarea {
+            width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; font-family: 'Meiryo', sans-serif; resize: vertical; line-height: 1.7;
+        }
+        textarea:focus { outline: none; border-color: #2c5f8a; box-shadow: 0 0 0 2px rgba(44,95,138,0.15); }
+
+        input[type="text"] {
+            width: 100%; padding: 9px 12px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 14px; font-family: 'Meiryo', sans-serif;
+        }
+        input[type="text"]:focus { outline: none; border-color: #2c5f8a; box-shadow: 0 0 0 2px rgba(44,95,138,0.15); }
+
+        .point-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .point-btn {
+            padding: 7px 16px; border: 2px solid #2c5f8a; border-radius: 20px;
+            background: #fff; color: #2c5f8a; font-size: 13px; font-weight: bold; cursor: pointer; transition: all 0.15s;
+        }
+        .point-btn:hover { background: #e8f4fd; }
+        .point-btn.selected { background: #2c5f8a; color: #fff; }
+
+        /* 算定点数＋生成ボタンの横並び行 */
+        .generate-row {
+            display: flex;
+            gap: 12px;
+            align-items: stretch;
+            margin: 4px 0 20px;
+        }
+        .point-select-inline {
+            flex: 1;
+            background: #fff;
+            border-radius: 10px;
+            padding: 12px 14px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .point-select-inline .point-label {
+            font-size: 13px; font-weight: bold; color: #2c5f8a; display: block; margin-bottom: 6px;
+        }
+
+        .generate-btn {
+            padding: 0 28px; background: #2c5f8a; color: #fff; border: none;
+            border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer;
+            white-space: nowrap; transition: background 0.2s; flex-shrink: 0;
+        }
+        .generate-btn:hover { background: #1e4a6e; }
+        .generate-btn:disabled { background: #aaa; cursor: not-allowed; }
+
+        .loading { text-align: center; padding: 20px; color: #2c5f8a; font-size: 15px; }
+
+        .error-msg {
+            background: #fff5f5; border: 1px solid #fc8181; color: #c53030;
+            padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 16px;
+        }
+
+        .output-box { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 12px; }
+        .output-box-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .output-box-title { font-size: 15px; font-weight: bold; color: #2c5f8a; }
+        .output-textarea {
+            width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; font-family: 'Meiryo', sans-serif; resize: vertical; line-height: 1.8; background: #fafafa;
+        }
+
+        .btn { padding: 9px 18px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+        .btn-green  { background: #38a169; color: #fff; } .btn-green:hover  { background: #2f855a; }
+        .btn-orange { background: #dd6b20; color: #fff; } .btn-orange:hover { background: #c05621; }
+        .btn-red    { background: #e53e3e; color: #fff; } .btn-red:hover    { background: #c53030; }
+        .btn-blue   { background: #2c5f8a; color: #fff; } .btn-blue:hover   { background: #1e4a6e; }
+        .btn-gray   { background: #e2e8f0; color: #555; } .btn-gray:hover   { background: #cbd5e0; }
+        .btn-full { width: 100%; padding: 13px; font-size: 15px; }
+        .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+        /* 2カラムレイアウト */
+        .main-layout {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        /* 左ペイン：朝の患者登録（画面の2/5） */
+        .left-pane {
+            flex: 0 0 38%;
+            min-width: 0;
+            background: #eef7ee;
+            border: 1px solid #9ae6b4;
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .left-pane h2 { color: #276749; border-bottom-color: #9ae6b4; }
+
+        /* 右ペイン：今回の訪問入力（スクロールしても追従） */
+        .right-pane {
+            flex: 1;
+            min-width: 0;
+            position: sticky;
+            top: 20px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+
+        .roster-add-form { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+
+        .roster-list { display: flex; flex-direction: column; gap: 6px; }
+
+        .roster-item {
+            background: #fff; border: 1px solid #c6f6d5; border-radius: 6px;
+            padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+        }
+        .roster-item.done { background: #f0f0f0; border-color: #ccc; opacity: 0.6; }
+        .roster-item-name { font-weight: bold; font-size: 14px; min-width: 60px; }
+        .roster-item-preview { font-size: 11px; color: #888; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        .roster-item-done-label { font-size: 11px; color: #888; padding: 2px 8px; background: #e2e8f0; border-radius: 10px; }
+        .roster-item-del { background: none; border: none; color: #e53e3e; font-size: 14px; cursor: pointer; padding: 2px 4px; }
+
+        .roster-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+
+        /* 完了済み一覧エリア */
+        #list-area { background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 16px; }
+        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+
+        .patient-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; background: #f8fafc; overflow: hidden; }
+        .patient-item-header { padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .patient-item-header:hover { background: #edf2f7; }
+        .patient-item-body { display: none; padding: 0 14px 12px; border-top: 1px solid #e2e8f0; }
+        .patient-item-body textarea { margin-top: 10px; background: #fff; }
+        .patient-item-name { font-weight: bold; font-size: 14px; }
+        .patient-item-point { font-size: 12px; color: #666; margin-left: 8px; }
+        .patient-item-del { background: none; border: none; color: #e53e3e; font-size: 16px; cursor: pointer; padding: 2px 6px; }
+
+        #output-area { display: none; }
+
+        .voice-btn {
+            background: #e8f4fd; border: 1px solid #2c5f8a; color: #2c5f8a;
+            padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;
+        }
+        .voice-btn:hover { background: #2c5f8a; color: #fff; }
+        .voice-btn.recording { background: #e53e3e; color: #fff; border-color: #e53e3e; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        hr.divider { border: none; border-top: 2px dashed #c5d9ec; margin: 24px 0; }
+
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            z-index: 1000; display: flex; align-items: center; justify-content: center;
+        }
+        .modal-box {
+            background: #fff; border-radius: 12px; padding: 24px;
+            width: min(560px, 90vw); box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+        .modal-box h3 { font-size: 15px; color: #2c5f8a; margin-bottom: 4px; }
+        .modal-box p  { font-size: 12px; color: #888; margin-bottom: 12px; }
+
+        .patient-name-edit {
+            font-weight: bold; font-size: 14px; border: 1px solid transparent;
+            border-radius: 4px; padding: 2px 6px; background: transparent;
+            color: inherit; cursor: text; min-width: 60px; max-width: 180px;
+            font-family: inherit;
+        }
+        .patient-name-edit:hover, .patient-name-edit:focus {
+            border-color: #c5d9ec; background: #f0f4f8; outline: none;
+        }
+    </style>
+</head>
+<body>
+
+<!-- タイトル行（設定ボタンを同じ高さに配置） -->
+<div class="header-row">
+    <div></div>
+    <h1>訪問薬剤師 薬歴入力支援</h1>
+    <div class="header-actions">
+        <span class="status-indicator" id="settings-status">&nbsp;</span>
+        <button class="btn btn-gray btn-sm" onclick="toggleSettings()">⚙️ 設定</button>
+    </div>
+</div>
+
+<!-- APIキー・Slack設定（折りたたみパネル） -->
+<div id="settings-panel" class="api-section" style="display:none; flex-direction:column; gap:10px;">
+    <div style="display:flex; align-items:center; gap:10px; width:100%;">
+        <label style="min-width:160px;">Gemini APIキー：</label>
+        <input type="password" id="apiKey" placeholder="AIza... のキーを入力してください" oninput="localStorage.setItem('geminiKey', this.value); updateSettingsStatus();" style="flex:1;">
+    </div>
+    <div style="display:flex; align-items:flex-start; gap:10px; width:100%;">
+        <label style="min-width:160px; white-space:nowrap; padding-top:6px;">Slack Bot Token：</label>
+        <div id="slackTokenSection" style="flex:1; display:flex; align-items:center; gap:8px;"></div>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; width:100%;">
+        <label style="min-width:160px; white-space:nowrap;">Slack Channel ID：</label>
+        <input type="text" id="slackChannelId" placeholder="例: C01234ABCDE" oninput="localStorage.setItem('slackChannelId', this.value); updateSettingsStatus();" style="flex:1;">
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; width:100%;">
+        <label style="min-width:160px; white-space:nowrap;">GAS Proxy URL：</label>
+        <input type="text" id="slackProxyUrl" placeholder="https://script.google.com/macros/s/.../exec" oninput="localStorage.setItem('slackProxyUrl', this.value); updateSettingsStatus();" style="flex:1; font-family:monospace; font-size:12px;">
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <span style="font-size:11px; color:#888;">※ Botをチャンネルに /invite してからテスト送信してください</span>
+        <button class="btn btn-gray btn-sm" onclick="testSlackBot(this)">📡 テスト送信（接続確認のみ）</button>
+    </div>
+</div>
+
+<!-- ===== 2カラムレイアウト ===== -->
+<div class="main-layout">
+
+    <!-- 左ペイン：登録 -->
+    <div class="left-pane">
+        <h2>▼ 登録</h2>
+
+        <div class="roster-add-form">
+            <div style="margin-bottom:8px;">
+                <span class="section-label" style="font-size:13px;">患者名 <span style="font-weight:normal; font-size:11px; color:#888;">（任意）</span></span>
+                <input type="text" id="rosterInitial" placeholder="患者名" oninput="onRosterNameInput()" style="margin-top:6px; width:100%; box-sizing:border-box;">
+                <div id="rosterHistoryIndicator"></div>
+            </div>
+            <div style="margin-bottom:8px;">
+                <span class="section-label" style="font-size:13px;">前回の記録</span>
+                <span class="section-desc">MUSUBIからO〜OPをコピペ</span>
+                <textarea id="rosterPrevRecord" rows="6" placeholder="前回の記録をコピペしてください..." style="margin-top:6px;"></textarea>
+            </div>
+            <div style="margin-bottom:8px;">
+                <span class="section-label" style="font-size:13px;">今回のO <span style="font-weight:normal; font-size:11px; color:#888;">（任意）事前にわかっていれば入力、訪問時に上書き可</span></span>
+                <textarea id="rosterCurrentO" rows="3" placeholder="事前にわかっているO情報があれば入力..." style="margin-top:6px;"></textarea>
+                <button onclick="toggleRxSection('roster')" id="rxToggleBtnRoster" style="margin-top:6px; font-size:12px; padding:5px 12px; background:#eef2ff; color:#5c6bc0; border:1px solid #c5cae9; border-radius:6px; cursor:pointer;">📋 処方内容を変換してOに追記</button>
+                <div id="rxSectionRoster" style="display:none; margin-top:8px; padding:12px; background:#f5f5f5; border:1px solid #ddd; border-radius:8px;">
+                    <div style="font-size:12px; color:#666; margin-bottom:8px;">MUSUBIの処方一覧をそのままコピペ → 薬名・用量・用法を整形してOに追記します</div>
+                    <textarea id="rxInputRoster" rows="6" style="width:100%; box-sizing:border-box; font-size:13px; padding:8px; border:1px solid #ccc; border-radius:6px; resize:vertical; font-family:inherit;"></textarea>
+                    <button onclick="convertRx('roster')" style="margin-top:8px; width:100%; padding:8px; background:#5c6bc0; color:#fff; border:none; border-radius:6px; font-size:13px; cursor:pointer; font-weight:bold;">変換してOに追記</button>
+                </div>
+            </div>
+            <button class="btn btn-green" onclick="addToRoster()" style="width:100%;">＋ 患者を登録</button>
+        </div>
+
+        <div class="roster-list" id="roster-list"></div>
+
+        <div class="roster-footer">
+            <span id="roster-count" style="font-size:12px; color:#555;"></span>
+            <div style="display:flex; gap:8px;">
+                <button id="batchGenerateBtn" class="btn btn-blue btn-sm" onclick="batchGenerate()">▶▶ 一括作成</button>
+                <button class="btn btn-red btn-sm" onclick="clearRoster()">本日の登録をクリア</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右ペイン：訪問記録 -->
+    <div class="right-pane">
+        <h2>▼ 訪問記録</h2>
+
+        <!-- 今回のS -->
+        <div class="section">
+            <div class="section-header" style="display:flex; align-items:center; justify-content:space-between;">
+                <div>
+                    <span class="section-label">今回のS</span>
+                    <span class="section-desc">患者・家族からの訴え（音声入力可）</span>
+                </div>
+                <button class="voice-btn" onclick="startVoice('currentS')">🎤 音声入力</button>
+            </div>
+            <textarea id="currentS" rows="4" placeholder="今回の訪問で患者・家族から聞いた内容を入力..."></textarea>
+        </div>
+
+        <!-- 今回のO（任意） -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-label">今回のO <span style="font-weight:normal; font-size:12px; color:#888;">（任意）入力した場合は日付計算せずそのまま使います</span></span>
+            </div>
+            <textarea id="currentO" rows="4" placeholder="今回のO情報をそのまま使いたい場合はここに入力（空欄なら前回記録から日付を自動計算）..."></textarea>
+            <button onclick="toggleRxSection()" id="rxToggleBtn" style="margin-top:8px; font-size:12px; padding:5px 12px; background:#eef2ff; color:#5c6bc0; border:1px solid #c5cae9; border-radius:6px; cursor:pointer;">📋 処方内容を変換してOに追記</button>
+            <div id="rxSection" style="display:none; margin-top:8px; padding:12px; background:#f5f5f5; border:1px solid #ddd; border-radius:8px;">
+                <div style="font-size:12px; color:#666; margin-bottom:8px;">MUSUBIの処方一覧をそのままコピペ → 薬名・用量・用法を整形してOに追記します</div>
+                <textarea id="rxInput" rows="6" style="width:100%; box-sizing:border-box; font-size:13px; padding:8px; border:1px solid #ccc; border-radius:6px; resize:vertical; font-family:inherit;"></textarea>
+                <button onclick="convertRx()" style="margin-top:8px; width:100%; padding:8px; background:#5c6bc0; color:#fff; border:none; border-radius:6px; font-size:13px; cursor:pointer; font-weight:bold;">変換してOに追記</button>
+            </div>
+        </div>
+
+        <!-- 前回の記録 -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-label">前回の記録</span>
+                <span class="section-desc">MUSUBIからO・A・EP・OPをまとめてコピペ（患者選択で自動セット）</span>
+            </div>
+            <textarea id="prevRecord" rows="16" placeholder="MUSUBIの前回記録をそのままコピペしてください（O〜OPまで全部）..."></textarea>
+        </div>
+
+        <!-- 算定点数＋生成ボタン横並び -->
+        <div class="generate-row">
+            <div class="point-select-inline">
+                <span class="point-label">算定点数</span>
+                <div class="point-btns">
+                    <button class="point-btn" onclick="selectPoint(this,'518点')">518点</button>
+                    <button class="point-btn" onclick="selectPoint(this,'618点')">618点</button>
+                    <button class="point-btn" onclick="selectPoint(this,'650点')">650点</button>
+                    <button class="point-btn" onclick="selectPoint(this,'other')">その他</button>
+                </div>
+                <input type="text" id="pointInput" placeholder="点数を入力" style="display:none; margin-top:8px;">
+            </div>
+            <button class="generate-btn" onclick="generate()">▶ 補助薬歴を作成</button>
+        </div>
+
+        <!-- エラー表示 -->
+        <div id="error-area"></div>
+
+        <!-- ローディング -->
+        <div id="loading" style="display:none">
+            <div class="loading">⏳ 生成中です。しばらくお待ちください...</div>
+        </div>
+    </div>
+
+</div><!-- /.main-layout -->
+
+<!-- 出力エリア（全幅・下部） -->
+<div id="output-area">
+    <div class="output-box">
+        <div class="output-box-header">
+            <span class="output-box-title" id="output-patient-label">生成結果</span>
+        </div>
+        <textarea class="output-textarea" id="output-all" rows="20"></textarea>
+    </div>
+    <div style="display:flex; gap:10px; margin-bottom:20px;">
+        <button class="btn btn-green btn-full" onclick="addToList()">✚ 一覧に追加して次の患者へ</button>
+    </div>
+</div>
+
+<hr class="divider">
+
+<!-- ===== 完了一覧エリア ===== -->
+<div id="list-area" style="display:none">
+    <h2>▼ 本日の薬歴一覧</h2>
+    <div class="list-header">
+        <span id="list-count" style="font-size:13px; color:#666;"></span>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-blue" onclick="downloadAll()">⬇ ダウンロード</button>
+            <button class="btn btn-orange" id="slackSendBtn" onclick="openSlackModal()">▶ Slackに送信</button>
+            <button class="btn btn-red" onclick="clearAllPatients()">全件削除</button>
+        </div>
+    </div>
+    <div id="patient-list"></div>
+</div>
+
+<script>
+// ===== 初期化 =====
+let slackTokenLocked = true;
+let isGenerating = false;
+let pendingRosterIndex = -1;  // generate() 開始時のcurrentRosterIndexを固定保持
+
+window.addEventListener('load', () => {
+    const saved = localStorage.getItem('geminiKey');
+    if (saved) document.getElementById('apiKey').value = saved;
+    const chId = localStorage.getItem('slackChannelId');
+    if (chId) document.getElementById('slackChannelId').value = chId;
+    const proxyUrl = localStorage.getItem('slackProxyUrl');
+    if (proxyUrl) document.getElementById('slackProxyUrl').value = proxyUrl;
+    renderSlackTokenSection();
+    updateSettingsStatus();
+    loadRoster();
+    loadPatientsStore();
+});
+
+// ===== 患者別履歴（localStorage: yakureki_history）=====
+function loadHistory() {
+    try { return JSON.parse(localStorage.getItem('yakureki_history') || '{}'); }
+    catch(e) { return {}; }
+}
+
+function saveHistoryFor(name, yakureki) {
+    if (!name || /^患者\d+$/.test(name)) return;  // 自動生成名は保存しない
+    // プロンプトの「前回の記録」形式に合わせ、##O##以降のみ保存（Sは次回訪問で新規入力する）
+    const oIdx = yakureki.indexOf('##O##');
+    const record = oIdx >= 0 ? yakureki.slice(oIdx) : yakureki;
+    const history = loadHistory();
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    history[name] = { date: dateStr, record };
+    localStorage.setItem('yakureki_history', JSON.stringify(history));
+}
+
+function getHistoryFor(name) {
+    return loadHistory()[name] || null;
+}
+
+function onRosterNameInput() {
+    const name = document.getElementById('rosterInitial').value.trim();
+    const indicator = document.getElementById('rosterHistoryIndicator');
+    if (!name) { indicator.innerHTML = ''; return; }
+    const h = getHistoryFor(name);
+    if (h) {
+        indicator.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = `📚 前回の記録を履歴から読み込む（${h.date}）`;
+        btn.style.cssText = 'margin-top:6px; font-size:12px; padding:5px 10px; background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:6px; cursor:pointer;';
+        btn.onclick = () => loadHistoryToRoster(name);
+        indicator.appendChild(btn);
+    } else {
+        indicator.innerHTML = '';
+    }
+}
+
+function loadHistoryToRoster(name) {
+    const h = getHistoryFor(name);
+    if (!h) return;
+    const ta = document.getElementById('rosterPrevRecord');
+    if (ta.value.trim() && !confirm('前回の記録欄に入力があります。履歴で上書きしますか？')) return;
+    ta.value = h.record;
+}
+
+// ===== 患者一覧のlocalStorage退避（ブラウザ事故対策）=====
+function savePatientsStore() {
+    try { localStorage.setItem('yakureki_patients', JSON.stringify(patients)); }
+    catch(e) {}
+}
+
+function loadPatientsStore() {
+    try {
+        const stored = JSON.parse(localStorage.getItem('yakureki_patients') || '[]');
+        if (Array.isArray(stored) && stored.length > 0) {
+            patients.push(...stored);
+            renderList();
+        }
+    } catch(e) {}
+}
+
+// ===== 設定パネル =====
+function toggleSettings() {
+    const panel = document.getElementById('settings-panel');
+    panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+}
+
+function updateSettingsStatus() {
+    const apiSet = !!localStorage.getItem('geminiKey');
+    const tokenSet = !!localStorage.getItem('slackBotToken');
+    const chSet = !!localStorage.getItem('slackChannelId');
+    const proxySet = !!localStorage.getItem('slackProxyUrl');
+    document.getElementById('settings-status').innerHTML =
+        `APIキー ${apiSet ? '✅' : '❌'}　Slack ${tokenSet && chSet && proxySet ? '🔒✅' : '❌'}`;
+}
+
+// GASプロキシ経由でSlackに送る共通関数（CORS回避のため text/plain でJSON送信）
+async function callProxy(payload) {
+    const proxyUrl = (localStorage.getItem('slackProxyUrl') || '').trim();
+    if (!proxyUrl) throw new Error('GAS Proxy URLが未設定です');
+    const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify(payload),
+        redirect: 'follow'
+    });
+    if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+    return res.json();
+}
+
+function renderSlackTokenSection() {
+    const container = document.getElementById('slackTokenSection');
+    const token = localStorage.getItem('slackBotToken') || '';
+
+    if (token && slackTokenLocked) {
+        const tail = token.slice(-6);
+        container.innerHTML = `
+            <span class="slack-url-display">🔒 xoxb-***${tail}</span>
+            <button class="btn btn-gray btn-sm" onclick="unlockSlackToken()">✏️ 編集</button>
+        `;
+    } else {
+        container.innerHTML = `
+            <input type="password" id="slackTokenInput" placeholder="xoxb-..." value="${token.replace(/"/g, '&quot;')}" style="flex:1; padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:13px; font-family:monospace;">
+            <button class="btn btn-blue btn-sm" onclick="saveSlackToken()">💾 保存</button>
+        `;
+    }
+}
+
+function unlockSlackToken() {
+    if (!confirm('Slack Bot Tokenを変更しますか？\n誤ったTokenを設定すると、意図しないワークスペース／チャンネルに患者情報が送信される恐れがあります。')) return;
+    slackTokenLocked = false;
+    renderSlackTokenSection();
+}
+
+function saveSlackToken() {
+    const input = document.getElementById('slackTokenInput');
+    const token = input.value.trim();
+    if (token && !token.startsWith('xoxb-')) {
+        if (!confirm('Bot Tokenは通常「xoxb-」で始まります。このまま保存しますか？')) return;
+    }
+    localStorage.setItem('slackBotToken', token);
+    slackTokenLocked = true;
+    renderSlackTokenSection();
+    updateSettingsStatus();
+}
+
+async function testSlackBot(btn) {
+    const token = localStorage.getItem('slackBotToken') || '';
+    const channelId = (localStorage.getItem('slackChannelId') || '').trim();
+    const proxyUrl = (localStorage.getItem('slackProxyUrl') || '').trim();
+    if (!token)     { alert('Slack Bot Tokenが未設定です。'); return; }
+    if (!channelId) { alert('Channel IDが未設定です。'); return; }
+    if (!proxyUrl)  { alert('GAS Proxy URLが未設定です。'); return; }
+    const tail = token.slice(-6);
+    if (!confirm(`テスト送信を実行します。よろしいですか？\n\nToken末尾: ***${tail}\nChannel ID: ${channelId}\n内容: 接続確認メッセージのみ（患者情報は含みません）`)) return;
+
+    btn.disabled = true;
+    btn.textContent = '送信中…';
+    try {
+        const data = await callProxy({ mode: 'test', token, channelId });
+        if (data.ok) {
+            alert('テスト送信成功。\nSlackで想定したチャンネルに届いているか確認してください。');
+        } else {
+            alert(`エラー: ${data.error}\n\n主な原因:\n・Bot Tokenが間違っている（invalid_auth）\n・Channel IDが間違っている（channel_not_found）\n・Botがチャンネルに招待されていない（not_in_channel）→ /invite @botname を実行\n・スコープ不足（missing_scope）→ chat:write / files:write を付与して再インストール`);
+        }
+    } catch (e) {
+        alert(`送信エラー: ${e.message}\n\nGAS Proxyに到達できていない可能性があります。\n・URLが正しいか確認（末尾が /exec）\n・GASのデプロイで「アクセスできるユーザー」が「全員」になっているか確認`);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📡 テスト送信（接続確認のみ）';
+    }
+}
+
+// ===== HTML エスケープ =====
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ===== 文字正規化 =====
+function normalizeText(text) {
+    return text
+        .replace(/㎎/g,'mg').replace(/㎜/g,'mm').replace(/㎝/g,'cm')
+        .replace(/㎞/g,'km').replace(/㎏/g,'kg').replace(/㎖/g,'mL')
+        .replace(/㏄/g,'cc').replace(/㎡/g,'m2').replace(/℃/g,'°C')
+        .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0)-0xFEE0))
+        .replace(/[Ａ-Ｚ]/g, s => String.fromCharCode(s.charCodeAt(0)-0xFEE0))
+        .replace(/[ａ-ｚ]/g, s => String.fromCharCode(s.charCodeAt(0)-0xFEE0));
+}
+
+// ===== 処方変換 =====
+function toggleRxSection(target) {
+    const suffix = target === 'roster' ? 'Roster' : '';
+    const sec = document.getElementById('rxSection' + suffix);
+    const btn = document.getElementById('rxToggleBtn' + suffix);
+    const isOpen = sec.style.display !== 'none';
+    sec.style.display = isOpen ? 'none' : 'block';
+    btn.textContent = isOpen ? '📋 処方内容を変換してOに追記' : '✕ 処方変換を閉じる';
+}
+
+function convertRx(target) {
+    const suffix = target === 'roster' ? 'Roster' : '';
+    const raw = document.getElementById('rxInput' + suffix).value;
+    if (!raw.trim()) return;
+
+    const externalKw = ['軟膏','クリーム','テープ','パップ','点眼','点鼻','点耳','ゲル','ローション','坐剤','坐薬','湿布','スプレー','外用液','吸入液','貼付'];
+    const saltRe = /(塩酸塩|硫酸塩|酢酸塩|硝酸塩|マレイン酸塩|フマル酸塩|臭化水素酸塩|塩酸|フマル酸|マレイン酸)(?=(錠|カプセル|Cap|軟膏|クリーム|ゲル|液|テープ|パップ|散|顆粒|細粒))/g;
+    const dosageRe = /1日|頓服|頓用/;
+
+    // MUSUBIコピペで薬品名と用法が別行になるケースを結合
+    const rawLines = raw.split('\n').map(l => l.trim()).filter(l => l);
+    const blocks = [];
+    for (const line of rawLines) {
+        if (blocks.length > 0 && dosageRe.test(line) && !dosageRe.test(blocks[blocks.length-1])) {
+            blocks[blocks.length-1] += '　' + line;
+        } else {
+            blocks.push(line);
+        }
+    }
+
+    const results = [];
+
+    for (const block of blocks) {
+        let s = normalizeText(block);
+        s = s.replace(/「[^」]*」/g, '').replace(/\s+/g, ' ').trim();
+        const tokens = s.split(/[\s　]+/);
+        let drugName = tokens[0] || '';
+        drugName = drugName.replace(saltRe, '');
+        drugName = drugName.replace(/カプセル/g, 'Cap');
+
+        const isExternal = externalKw.some(kw => drugName.includes(kw) || s.includes(kw));
+        const daysMatch = s.match(/(\d+)\s*日分/);
+        const days = daysMatch ? daysMatch[1] : '';
+
+        if (isExternal) {
+            const qMatch = s.match(/(\d+(?:\.\d+)?)\s*(g|mL|ml|枚|個|本|パック)/i);
+            const qty = qMatch ? `${qMatch[1]}${qMatch[2].replace('ml','mL')}` : '';
+            results.push(`・${drugName}${qty ? '　' + qty : ''}${days ? '　' + days + '日分' : ''}`);
+            continue;
+        }
+
+        // 単位は薬品名から判定
+        let unit = 'T';
+        if (/Cap/i.test(drugName)) unit = 'Cap';
+        else if (/包|顆粒|細粒|散|ドライシロップ|DS/i.test(drugName)) unit = '包';
+
+        const totalCountMatch = s.match(/1日\s*(\d+(?:\.\d+)?)\s*(錠|カプセル|Cap|C|包)/i);
+        const timesMatch = s.match(/1日\s*(\d+)\s*回/);
+        const usageMatch = s.match(/(朝昼夕食前|朝昼夕食後|朝夕食前|朝夕食後|朝昼食前|朝昼食後|昼夕食前|昼夕食後|朝食前|朝食後|昼食前|昼食後|夕食前|夕食後|寝る前|起床時|食前|食後|食間|頓服|頓用)/);
+        const usage = usageMatch ? usageMatch[0] : '';
+
+        // 回数：「1日X回」優先、なければ用法から推定
+        let times = '';
+        if (timesMatch) {
+            times = timesMatch[1];
+        } else if (usage) {
+            if (/朝昼夕/.test(usage)) times = '3';
+            else if (/朝夕|朝昼|昼夕/.test(usage)) times = '2';
+            else if (/朝食|昼食|夕食|寝る前|起床時/.test(usage)) times = '1';
+        }
+
+        // 1回量：明示的なカウント指定があればそれ、なければ1
+        const perDose = totalCountMatch ? totalCountMatch[1] : '1';
+
+        if (/頓服|頓用/.test(usage)) {
+            results.push(`・${drugName}　頓服${days ? '　' + days + '日分' : ''}`);
+        } else if (times && usage) {
+            results.push(`・${drugName}　${perDose}${unit}${times}×${usage}${days ? '　' + days + '日分' : ''}`);
+        } else {
+            results.push(`・${drugName}${days ? '　' + days + '日分' : ''}`);
+        }
+    }
+
+    if (results.length === 0) return;
+
+    const targetId = target === 'roster' ? 'rosterCurrentO' : 'currentO';
+    const el = document.getElementById(targetId);
+    const existing = el.value.trim();
+    el.value = existing ? existing + '\n' + results.join('\n') : results.join('\n');
+
+    document.getElementById('rxInput' + (target === 'roster' ? 'Roster' : '')).value = '';
+    toggleRxSection(target);
+}
+
+// ===== 算定点数 =====
+function selectPoint(btn, value) {
+    document.querySelectorAll('.point-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    const input = document.getElementById('pointInput');
+    if (value === 'other') { input.style.display = 'block'; input.value = ''; input.focus(); }
+    else { input.style.display = 'none'; input.value = value; }
+}
+
+// ===== 音声入力 =====
+let recognition = null, currentTarget = null;
+function startVoice(targetId) {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert('音声入力はGoogle Chromeでご利用ください。'); return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (recognition && currentTarget === targetId) { recognition.stop(); return; }
+    if (recognition) recognition.stop();
+    recognition = new SR();
+    recognition.lang = 'ja-JP'; recognition.continuous = true; recognition.interimResults = false;
+    currentTarget = targetId;
+    const btn = document.querySelector(`button[onclick="startVoice('${targetId}')"]`);
+    btn.textContent = '⏹ 停止'; btn.classList.add('recording');
+    recognition.onresult = (e) => {
+        const ta = document.getElementById(targetId);
+        let t = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
+        ta.value += (ta.value ? '\n' : '') + t;
+    };
+    recognition.onend = () => { btn.textContent = '🎤 音声入力'; btn.classList.remove('recording'); currentTarget = null; };
+    recognition.onerror = () => { btn.textContent = '🎤 音声入力'; btn.classList.remove('recording'); currentTarget = null; };
+    recognition.start();
+}
+
+// ===== 事前登録 =====
+let roster = [];
+let currentRosterIndex = -1;
+
+function loadRoster() {
+    try { roster = JSON.parse(localStorage.getItem('yakureki_roster') || '[]'); } catch(e) { roster = []; }
+    renderRoster();
+}
+
+function saveRoster() { localStorage.setItem('yakureki_roster', JSON.stringify(roster)); }
+
+function addToRoster() {
+    const initial    = document.getElementById('rosterInitial').value.trim();
+    const prevRecord = document.getElementById('rosterPrevRecord').value.trim();
+    const currentO   = document.getElementById('rosterCurrentO').value.trim();
+    if (!prevRecord) { alert('前回の記録を入力してください。'); return; }
+
+    const name = initial || `患者${roster.length + 1}`;
+    roster.push({ name, prevRecord, currentO, done: false });
+    saveRoster();
+    renderRoster();
+
+    document.getElementById('rosterInitial').value = '';
+    document.getElementById('rosterPrevRecord').value = '';
+    document.getElementById('rosterCurrentO').value = '';
+    document.getElementById('rosterHistoryIndicator').innerHTML = '';
+}
+
+function selectFromRoster(index) {
+    if (isGenerating) {
+        alert('薬歴を生成中です。完了後に患者を選択してください。');
+        return;
+    }
+    const p = roster[index];
+    currentRosterIndex = index;
+    document.getElementById('prevRecord').value = p.prevRecord;
+    document.getElementById('currentO').value = p.currentO || '';
+    document.getElementById('currentS').focus();
+}
+
+function removeFromRoster(index) {
+    roster.splice(index, 1);
+    saveRoster();
+    renderRoster();
+}
+
+function clearRoster() {
+    if (!confirm('本日の患者登録をすべてクリアしますか？')) return;
+    roster = [];
+    currentRosterIndex = -1;
+    localStorage.removeItem('yakureki_roster');
+    renderRoster();
+}
+
+function renderRoster() {
+    const listEl = document.getElementById('roster-list');
+    const countEl = document.getElementById('roster-count');
+    const done = roster.filter(p => p.done).length;
+    countEl.textContent = roster.length > 0 ? `登録 ${roster.length}名・完了 ${done}名` : '';
+    if (roster.length === 0) { listEl.innerHTML = '<p style="font-size:12px;color:#888;margin-top:4px;">まだ登録されていません</p>'; return; }
+    listEl.innerHTML = '';
+    roster.forEach((p, i) => {
+        const item = document.createElement('div');
+        item.className = 'roster-item' + (p.done ? ' done' : '');
+        const preview = p.prevRecord.slice(0, 40).replace(/\n/g, ' ');
+        const hasO = p.currentO ? '　📋O仮登録あり' : '';
+        item.innerHTML = `
+            <span class="roster-item-name">${escHtml(p.name)}</span>
+            <span class="roster-item-preview">${escHtml(preview)}…${hasO}</span>
+            ${p.done ? '<span class="roster-item-done-label">完了</span>' : `<button class="btn btn-blue btn-sm" onclick="selectFromRoster(${i})">選択</button>`}
+            <button class="roster-item-del" onclick="removeFromRoster(${i})">✕</button>
+        `;
+        listEl.appendChild(item);
+    });
+}
+
+// ===== Gemini API共通呼び出し =====
+async function callGeminiWithFallback(apiKey, prompt) {
+    const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+    async function callOne(model) {
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.4 }
+                })
+            }
+        );
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error?.message || `APIエラー (${res.status})`);
+        }
+        return res.json();
+    }
+    let lastError = null;
+    for (const model of models) {
+        try { return await callOne(model); }
+        catch (e) {
+            lastError = e;
+            if (!e.message.includes('high demand') && !e.message.includes('overloaded')) throw e;
+        }
+    }
+    throw lastError;
+}
+
+// ===== プロンプト生成 =====
+function buildYakurekiPrompt(currentS, currentO, prevRecord) {
+    const now = new Date();
+    const reiwaStr = `R${now.getFullYear() - 2018}.${now.getMonth() + 1}`;
+    return `あなたは訪問薬剤師の薬歴作成を支援するAIです。
+以下のルールに厳密に従って薬歴を作成してください。
+
+---
+【本日の年月（令和表記）】
+${reiwaStr}
+
+【今回のS（主観的情報）】
+${currentS || '（入力なし）'}
+
+【今回のO入力状態】${currentO ? '入力あり' : '空（前回記録のOから日付を14日進めて使用すること）'}
+【今回のO（直接入力）】
+${currentO || '（なし）'}
+
+【前回の記録（O・A・EP・OPが含まれています）】
+${prevRecord}
+---
+
+【出力ルール】
+
+①各項目のタイトルは ##S##、##O##、##A##、##EP##、##OP## の形式で記載する。
+
+②S：今回のSの内容を ##S## の下に以下のルールで記載する。入力がない場合は ##S## とだけ出力する。
+・Sの内容に「家族」という言葉が含まれる場合は冒頭に「（家族）」と改行を入れてから内容を記載する。
+・Sの内容に「ヘルパー」「ヘルパーさん」という言葉が含まれる場合は冒頭に「（ヘルパーさん）」と改行を入れてから内容を記載する。
+・上記いずれも含まれない場合は冒頭に「（本人）」と改行を入れてから内容を記載する。
+・複数の話者がいる場合はそれぞれ改行で区切って記載する。
+
+---【今回のOが入力されている場合と空の場合でルールが変わります】---
+※「今回のO入力状態」が「空」の場合は③〜⑥の「■空の場合」のルールを使う。「入力あり」の場合は「■入力ありの場合」のルールを使う。
+
+■今回のO（直接入力）が空の場合：
+
+③O：前回の記録からOセクションを見つけ、配薬日付を14日間進める。
+・日付形式（例：3/25〜4/23）を14日進める（例：4/24〜5/7）。月をまたぐ場合は正確に計算する。
+・「ー変更点ー 無し」などの付帯情報はそのまま維持する。
+・Oセクションが見当たらない場合は ##O## とだけ出力する。
+
+④A：前回の記録からOPセクションを見つけ、「#」または「＃」で始まるプロブレムの中から3つを選び、それぞれについて以下の形式で1行ずつ記載する。
+形式：＃プロブレム名　→　[薬の効果・副作用（具体的な症状名）に問題ない旨を1行で]
+・今回のSに特記事項がある場合は反映させる。副作用は具体的な症状名を必ず入れる。
+・前回のAと同じ内容になる場合は表現を変える。長くしない。1行で完結させる。
+
+⑤EP：今回のSとAの内容をもとに薬学的指導内容を1〜2文で作成する。
+・必ず薬の効果または副作用に関する内容を含める。
+・処方変更がない場合はOPに記載されている薬から2つ抽出し、その薬の具体的な副作用症状に注意するよう指導内容を作成する。
+・「このまま続けましょう」「安心しました」などの感情的・曖昧な表現は使わない。
+・リハビリ・運動・食事のことだけを書かない。薬の内容を必ず含める。
+
+⑥OP：前回の記録からOPセクションを一字一句変えずにそのままコピーする。タイトルは ##OP## とする。
+※OPのフォーマットルール：＃プロブレム名は行頭から書き、その下の詳細内容は必ず行頭に全角スペースを1つ入れてずらして記載する。
+
+---
+
+■今回のO（直接入力）が入力ありの場合：
+
+③O：今回のO（直接入力）の内容をそのまま ##O## の下に記載する。
+
+④A：以下の2種類を合わせて計3〜4項目記載する。
+形式：＃プロブレム名　→　[評価を1行で]
+【種類1】今回のOで変化があった項目（処方変更・検査値変動・症状変化など）について必ず評価する。
+【種類2】前回OPの「#」または「＃」で始まるプロブレムから2〜3つ選び評価する。
+・副作用は具体的な症状名を必ず入れる。前回Aと同じ表現になる場合は言い回しを変える。長くしない。
+
+⑤EP：今回のS・O・Aの内容をもとに薬学的指導内容を1〜2文で作成する。
+・今回のOで明らかになった情報があれば優先して反映する。
+・必ず薬の効果または副作用に関する内容を含める。
+・「このまま続けましょう」「安心しました」などの感情的・曖昧な表現は使わない。
+・リハビリ・運動・食事のことだけを書かない。薬の内容を必ず含める。
+
+⑥OP：前回の記録からOPセクションを一字一句変えずにそのままコピーする。タイトルは ##OP## とする。
+その後、以下の2点を処理する：
+【変更追記】今回のOで薬剤の変更（増量・減量・追加・中止など）があった場合、その薬剤に最も関連する＃プロブレムを探し出し、そのプロブレムブロックの詳細内容の末尾（次の＃の直前）に以下の形式で1行追加する：
+　R{令和年}.{月}　{薬剤名}{変更前}→{変更後}（{理由}）
+　※年月は必ず「本日の年月」に記載されている ${reiwaStr} を使うこと。推測や過去の日付は使わない。
+　※関連するプロブレムが存在しない場合のみ、新規＃プロブレムとしてOP末尾に追加する。
+　※複数の薬剤が変更された場合は、それぞれ最も関連するプロブレムに個別に追記する。
+【新規プロブレム】今回のO・Aで全く新しい病態・薬剤が把握された場合（既存プロブレムに対応するものがない場合のみ）は新しい＃プロブレムとして末尾に追加する。
+※OPのフォーマットルール：＃プロブレム名は行頭から書き、その下の詳細内容は必ず行頭に全角スペースを1つ入れてずらして記載する。
+
+---
+必ず以下の形式のみで出力し、余計な前置き・説明・コメントは一切加えないこと：
+
+##S##
+[Sの内容]
+
+##O##
+[Oの内容]
+
+##A##
+[Aの内容]
+
+##EP##
+[EPの内容]
+
+##OP##
+[前回のOPをそのままコピー＋追記]`;
+}
+
+// ===== 薬歴生成 =====
+async function generate() {
+    const apiKey     = document.getElementById('apiKey').value.trim();
+    const point      = document.getElementById('pointInput').value.trim();
+    const currentS   = document.getElementById('currentS').value.trim();
+    const currentO   = document.getElementById('currentO').value.trim();
+    const prevRecord = document.getElementById('prevRecord').value.trim();
+    const errorArea  = document.getElementById('error-area');
+    errorArea.innerHTML = '';
+
+    if (!apiKey)     { errorArea.innerHTML = '<div class="error-msg">⚠️ Gemini APIキーを入力してください。</div>'; return; }
+    if (!point)      { errorArea.innerHTML = '<div class="error-msg">⚠️ 算定点数を選択または入力してください。</div>'; return; }
+    if (!prevRecord) { errorArea.innerHTML = '<div class="error-msg">⚠️ 前回の記録を入力してください。</div>'; return; }
+
+    isGenerating = true;
+    pendingRosterIndex = currentRosterIndex;
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('output-area').style.display = 'none';
+    document.querySelector('.generate-btn').disabled = true;
+
+    const patientLabel = pendingRosterIndex >= 0 ? roster[pendingRosterIndex].name : '（手動入力）';
+
+    try {
+        const prompt = buildYakurekiPrompt(currentS, currentO, prevRecord);
+        const data = await callGeminiWithFallback(apiKey, prompt);
+        const text = normalizeText((data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim());
+        document.getElementById('output-patient-label').textContent = `${patientLabel}　${point}`;
+        document.getElementById('output-all').value = text;
+        document.getElementById('output-area').style.display = 'block';
+        document.getElementById('output-area').scrollIntoView({ behavior: 'smooth' });
+    } catch (e) {
+        errorArea.innerHTML = `<div class="error-msg">⚠️ エラーが発生しました：${e.message}</div>`;
+    } finally {
+        isGenerating = false;
+        document.getElementById('loading').style.display = 'none';
+        document.querySelector('.generate-btn').disabled = false;
+    }
+}
+
+// ===== 一括薬歴生成（並列実行・CONCURRENCY=3）=====
+async function batchGenerate() {
+    const apiKey    = document.getElementById('apiKey').value.trim();
+    const point     = document.getElementById('pointInput').value.trim();
+    const errorArea = document.getElementById('error-area');
+    errorArea.innerHTML = '';
+
+    if (!apiKey) { errorArea.innerHTML = '<div class="error-msg">⚠️ Gemini APIキーを入力してください。</div>'; return; }
+    if (!point)  { errorArea.innerHTML = '<div class="error-msg">⚠️ 算定点数を選択または入力してください。</div>'; return; }
+
+    const targets = roster.map((p, i) => ({ ...p, rosterIndex: i })).filter(p => !p.done);
+    if (targets.length === 0) { alert('未処理の患者がいません。'); return; }
+
+    const btn = document.getElementById('batchGenerateBtn');
+    btn.disabled = true;
+    document.querySelector('.generate-btn').disabled = true;
+    isGenerating = true;
+
+    const errors = [];
+    let completed = 0;
+    const CONCURRENCY = 3;
+
+    const processOne = async (p) => {
+        try {
+            const prompt = buildYakurekiPrompt('', p.currentO || '', p.prevRecord);
+            const data = await callGeminiWithFallback(apiKey, prompt);
+            const text = normalizeText((data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim());
+            patients.push({ label: p.name, point, content: text });
+            roster[p.rosterIndex].done = true;
+            saveRoster();
+            savePatientsStore();
+            saveHistoryFor(p.name, text);
+            renderRoster();
+            renderList();
+        } catch (e) {
+            errors.push(`${p.name}：${e.message}`);
+        } finally {
+            completed++;
+            btn.textContent = `⏳ ${completed}/${targets.length} 処理中…`;
+        }
+    };
+
+    // Concurrencyを制限したワーカープール
+    const queue = [...targets];
+    const workerCount = Math.min(CONCURRENCY, queue.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (queue.length > 0) {
+            const p = queue.shift();
+            if (p) await processOne(p);
+        }
+    }));
+
+    isGenerating = false;
+    btn.disabled = false;
+    btn.textContent = '▶▶ 一括作成';
+    document.querySelector('.generate-btn').disabled = false;
+
+    if (errors.length > 0) {
+        errorArea.innerHTML = `<div class="error-msg">⚠️ 一部エラーが発生しました：<br>${errors.join('<br>')}</div>`;
+    }
+    if (patients.length > 0) {
+        document.getElementById('list-area').scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+// ===== 完了一覧 =====
+const patients = [];
+
+function addToList() {
+    const point   = document.getElementById('pointInput').value.trim();
+    const content = document.getElementById('output-all').value.trim();
+    const label   = pendingRosterIndex >= 0 ? roster[pendingRosterIndex].name : `患者${patients.length + 1}`;
+
+    patients.push({ label, point, content });
+    renderList();
+    savePatientsStore();
+    saveHistoryFor(label, content);
+
+    if (pendingRosterIndex >= 0) {
+        roster[pendingRosterIndex].done = true;
+        saveRoster();
+        renderRoster();
+        // 別の患者を選択済みでなければ currentRosterIndex もリセット
+        if (currentRosterIndex === pendingRosterIndex) currentRosterIndex = -1;
+        pendingRosterIndex = -1;
+    }
+
+    document.getElementById('pointInput').value = '';
+    document.getElementById('pointInput').style.display = 'none';
+    document.getElementById('currentS').value = '';
+    document.getElementById('currentO').value = '';
+    document.getElementById('prevRecord').value = '';
+    document.querySelectorAll('.point-btn').forEach(b => b.classList.remove('selected'));
+    document.getElementById('output-area').style.display = 'none';
+    document.getElementById('error-area').innerHTML = '';
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderList() {
+    const listArea = document.getElementById('list-area');
+    const listEl   = document.getElementById('patient-list');
+    const countEl  = document.getElementById('list-count');
+    listArea.style.display = 'block';
+    countEl.textContent = `${patients.length}名分`;
+    listEl.innerHTML = '';
+    patients.forEach((p, i) => {
+        const item = document.createElement('div');
+        item.className = 'patient-item';
+        item.innerHTML = `
+            <div class="patient-item-header" onclick="toggleItem(${i})">
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <input type="text" class="patient-name-edit"
+                        onclick="event.stopPropagation()"
+                        title="クリックして名前を編集">
+                    <input type="text" class="patient-point-edit"
+                        onclick="event.stopPropagation()"
+                        style="font-size:12px; color:#666; border:1px solid transparent; border-radius:4px; padding:2px 5px; background:transparent; width:58px; cursor:text; font-family:inherit;"
+                        title="クリックして点数を編集">
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:12px;color:#888;">クリックで内容を開く</span>
+                    <button class="patient-item-del" onclick="event.stopPropagation();removePatient(${i})" title="削除">✕</button>
+                </div>
+            </div>
+            <div class="patient-item-body" id="item-body-${i}">
+                <textarea rows="16" style="font-size:13px;line-height:1.8;"></textarea>
+            </div>
+        `;
+        // 値は .value で安全に注入（innerHTML経由だと </textarea> で崩壊するバグを防止）
+        const nameInput = item.querySelector('.patient-name-edit');
+        nameInput.value = p.label;
+        nameInput.addEventListener('change', () => {
+            patients[i].label = nameInput.value;
+            savePatientsStore();
+        });
+        const pointInput = item.querySelector('.patient-point-edit');
+        pointInput.value = p.point;
+        pointInput.addEventListener('change', () => {
+            patients[i].point = pointInput.value;
+            savePatientsStore();
+        });
+        const ta = item.querySelector(`#item-body-${i} textarea`);
+        ta.value = p.content;
+        ta.addEventListener('change', () => {
+            patients[i].content = ta.value;
+            savePatientsStore();
+        });
+        listEl.appendChild(item);
+    });
+}
+
+function toggleItem(index) {
+    const body = document.getElementById(`item-body-${index}`);
+    body.style.display = body.style.display === 'block' ? 'none' : 'block';
+}
+
+function removePatient(index) {
+    if (!confirm(`${patients[index].label}の記録を削除しますか？`)) return;
+    patients.splice(index, 1);
+    savePatientsStore();
+    if (patients.length === 0) document.getElementById('list-area').style.display = 'none';
+    else renderList();
+}
+
+function clearAllPatients() {
+    if (patients.length === 0) return;
+    if (!confirm(`本日の薬歴一覧（${patients.length}名分）をすべて削除しますか？`)) return;
+    patients.length = 0;
+    localStorage.removeItem('yakureki_patients');
+    document.getElementById('list-area').style.display = 'none';
+}
+
+function buildFileContent() {
+    const sep = '\n\n' + '═'.repeat(40) + '\n\n';
+    return patients.map(p => `${p.label}　${p.point}\n${p.content}`).join(sep);
+}
+
+function buildFilename() {
+    const d = new Date();
+    return `yakureki_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.txt`;
+}
+
+function downloadAll() {
+    if (patients.length === 0) return;
+    const blob = new Blob([buildFileContent()], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = buildFilename(); a.click();
+    URL.revokeObjectURL(url);
+}
+
+function openSlackModal() {
+    if (patients.length === 0) return;
+    const token    = localStorage.getItem('slackBotToken') || '';
+    const channelId = (localStorage.getItem('slackChannelId') || '').trim();
+    const proxyUrl  = (localStorage.getItem('slackProxyUrl') || '').trim();
+    if (!token)     { alert('Slack Bot Tokenが未設定です。\n右上「⚙️ 設定」から登録してください。'); return; }
+    if (!channelId) { alert('Slack Channel IDが未設定です。\n右上「⚙️ 設定」から登録してください。'); return; }
+    if (!proxyUrl)  { alert('GAS Proxy URLが未設定です。\n右上「⚙️ 設定」から登録してください。'); return; }
+
+    // 日付：今日をデフォルト
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth()+1).padStart(2,'0');
+    const dd   = String(d.getDate()).padStart(2,'0');
+    document.getElementById('slackDateInput').value = `${yyyy}-${mm}-${dd}`;
+
+    // 担当者名：前回入力を復元
+    const savedSender = localStorage.getItem('yakureki_sender') || '';
+    document.getElementById('slackSenderInput').value = savedSender;
+
+    updateSlackComment();
+    document.getElementById('slack-modal').style.display = 'flex';
+}
+
+function updateSlackComment() {
+    const dateVal = document.getElementById('slackDateInput').value;   // "YYYY-MM-DD"
+    const sender  = document.getElementById('slackSenderInput').value.trim();
+    const DOW     = ['日','月','火','水','木','金','土'];
+
+    let dateStr = '';
+    if (dateVal) {
+        const [y, m, d] = dateVal.split('-').map(Number);
+        const dow = new Date(y, m - 1, d).getDay();
+        dateStr = `${m}月${d}日（${DOW[dow]}）`;
+    }
+
+    const senderPart = sender ? `${sender}の名前で` : '';
+    const nameList   = patients.map(p => `・${p.label}`).join('\n');
+
+    document.getElementById('slackCommentInput').value =
+        `${dateStr}　${senderPart}転記お願いします。\n\n${nameList}`;
+}
+
+function closeSlackModal() {
+    document.getElementById('slack-modal').style.display = 'none';
+}
+
+async function confirmSendToSlack(btn) {
+    const comment   = document.getElementById('slackCommentInput').value.trim();
+    const token     = localStorage.getItem('slackBotToken') || '';
+    const channelId = (localStorage.getItem('slackChannelId') || '').trim();
+    const filename  = buildFilename();
+    const content   = buildFileContent();
+
+    btn.disabled = true; btn.textContent = '送信中…';
+    try {
+        const data = await callProxy({ token, channelId, filename, content, initialComment: comment });
+        if (!data.ok) throw new Error(data.error || 'unknown error');
+        const sentCount = patients.length;
+        closeSlackModal();
+        patients.length = 0;
+        localStorage.removeItem('yakureki_patients');
+        document.getElementById('list-area').style.display = 'none';
+        alert(`${sentCount}名分をSlackに送信しました。\nファイル名: ${filename}`);
+    } catch (e) {
+        alert(`送信エラー: ${e.message}\n\n主な原因:\n・Bot Tokenが間違っている（invalid_auth）\n・Channel IDが間違っている（channel_not_found）\n・Botがチャンネルに招待されていない（not_in_channel）→ /invite @botname\n・スコープ不足（missing_scope）→ files:write / chat:write を付与して再インストール\n・GAS Proxy URLが間違っている／GASのアクセス権限が「全員」になっていない`);
+    } finally {
+        btn.disabled = false; btn.textContent = '▶ 送信する';
+    }
+}
+</script>
+
+<!-- Slack送信モーダル -->
+<div id="slack-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeSlackModal()">
+    <div class="modal-box">
+        <h3>Slackに送信</h3>
+        <div style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
+            <div style="flex:0 0 auto;">
+                <label style="font-size:12px; color:#555; display:block; margin-bottom:4px;">日付</label>
+                <div lang="en">
+                    <input type="date" id="slackDateInput" oninput="updateSlackComment()"
+                        style="padding:6px 10px; border:1px solid #ddd; border-radius:6px; font-size:13px; font-family:inherit;">
+                </div>
+            </div>
+            <div style="flex:1; min-width:140px;">
+                <label style="font-size:12px; color:#555; display:block; margin-bottom:4px;">担当者名</label>
+                <input type="text" id="slackSenderInput" placeholder="例：田中" oninput="updateSlackComment(); localStorage.setItem('yakureki_sender', this.value);"
+                    style="width:100%; padding:6px 10px; border:1px solid #ddd; border-radius:6px; font-size:13px; font-family:inherit;">
+            </div>
+        </div>
+        <label style="font-size:12px; color:#555; display:block; margin-bottom:4px;">送信コメント（編集可）</label>
+        <textarea id="slackCommentInput" rows="6" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; font-size:13px; font-family:inherit; line-height:1.7; resize:vertical;"></textarea>
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:14px;">
+            <button class="btn btn-gray" onclick="closeSlackModal()">キャンセル</button>
+            <button class="btn btn-orange" id="slackConfirmBtn" onclick="confirmSendToSlack(this)">▶ 送信する</button>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
