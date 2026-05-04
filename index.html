@@ -167,6 +167,7 @@
         .roster-item-name { font-weight: bold; font-size: 14px; min-width: 60px; }
         .roster-item-preview { font-size: 11px; color: #888; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
         .roster-item-done-label { font-size: 11px; color: #888; padding: 2px 8px; background: #e2e8f0; border-radius: 10px; }
+        .roster-item-generating-label { font-size: 11px; color: #2c5f8a; padding: 2px 8px; background: #bee3f8; border-radius: 10px; animation: pulse 1.2s infinite; }
         .roster-item-del { background: none; border: none; color: #e53e3e; font-size: 14px; cursor: pointer; padding: 2px 4px; }
 
         .roster-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
@@ -355,7 +356,7 @@
 
         <!-- ローディング -->
         <div id="loading" style="display:none">
-            <div class="loading">⏳ 生成中です。しばらくお待ちください...</div>
+            <div class="loading">⏳ <span id="loading-label">生成中です。しばらくお待ちください...</span></div>
         </div>
     </div>
 
@@ -738,10 +739,6 @@ function addToRoster() {
 }
 
 function selectFromRoster(index) {
-    if (isGenerating) {
-        alert('薬歴を生成中です。完了後に患者を選択してください。');
-        return;
-    }
     const p = roster[index];
     currentRosterIndex = index;
     document.getElementById('prevRecord').value = p.prevRecord;
@@ -778,7 +775,7 @@ function renderRoster() {
         item.innerHTML = `
             <span class="roster-item-name">${escHtml(p.name)}</span>
             <span class="roster-item-preview">${escHtml(preview)}…${hasO}</span>
-            ${p.done ? '<span class="roster-item-done-label">完了</span>' : `<button class="btn btn-blue btn-sm" onclick="selectFromRoster(${i})">選択</button>`}
+            ${p.done ? '<span class="roster-item-done-label">完了</span>' : (isGenerating && i === pendingRosterIndex) ? '<span class="roster-item-generating-label">⏳ 生成中</span>' : `<button class="btn btn-blue btn-sm" onclick="selectFromRoster(${i})">選択</button>`}
             <button class="roster-item-del" onclick="removeFromRoster(${i})">✕</button>
         `;
         listEl.appendChild(item);
@@ -943,6 +940,8 @@ async function generate() {
     document.querySelector('.generate-btn').disabled = true;
 
     const patientLabel = pendingRosterIndex >= 0 ? roster[pendingRosterIndex].name : '（手動入力）';
+    document.getElementById('loading-label').textContent = `${patientLabel}の薬歴を生成中...`;
+    renderRoster();
 
     try {
         const prompt = buildYakurekiPrompt(currentS, currentO, prevRecord);
@@ -958,6 +957,7 @@ async function generate() {
         isGenerating = false;
         document.getElementById('loading').style.display = 'none';
         document.querySelector('.generate-btn').disabled = false;
+        renderRoster();
     }
 }
 
