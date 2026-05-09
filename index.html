@@ -187,12 +187,6 @@
 
         #output-area { display: none; }
 
-        .voice-btn {
-            background: #e8f4fd; border: 1px solid #2c5f8a; color: #2c5f8a;
-            padding: 5px 12px; border-radius: 20px; font-size: 12px; cursor: pointer; transition: all 0.2s;
-        }
-        .voice-btn:hover { background: #2c5f8a; color: #fff; }
-        .voice-btn.recording { background: #e53e3e; color: #fff; border-color: #e53e3e; animation: pulse 1s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 
         hr.divider { border: none; border-top: 2px dashed #c5d9ec; margin: 24px 0; }
@@ -303,12 +297,9 @@
 
         <!-- 今回のS -->
         <div class="section">
-            <div class="section-header" style="display:flex; align-items:center; justify-content:space-between;">
-                <div>
-                    <span class="section-label">今回のS</span>
-                    <span class="section-desc">患者・家族からの訴え（音声入力可）</span>
-                </div>
-                <button class="voice-btn" onclick="startVoice('currentS')">🎤 音声入力</button>
+            <div class="section-header">
+                <span class="section-label">今回のS</span>
+                <span class="section-desc">患者・家族からの訴え</span>
             </div>
             <textarea id="currentS" rows="4" placeholder="今回の訪問で患者・家族から聞いた内容を入力..."></textarea>
         </div>
@@ -684,31 +675,6 @@ function selectPoint(btn, value) {
     const input = document.getElementById('pointInput');
     if (value === 'other') { input.style.display = 'block'; input.value = ''; input.focus(); }
     else { input.style.display = 'none'; input.value = value; }
-}
-
-// ===== 音声入力 =====
-let recognition = null, currentTarget = null;
-function startVoice(targetId) {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert('音声入力はGoogle Chromeでご利用ください。'); return;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (recognition && currentTarget === targetId) { recognition.stop(); return; }
-    if (recognition) recognition.stop();
-    recognition = new SR();
-    recognition.lang = 'ja-JP'; recognition.continuous = true; recognition.interimResults = false;
-    currentTarget = targetId;
-    const btn = document.querySelector(`button[onclick="startVoice('${targetId}')"]`);
-    btn.textContent = '⏹ 停止'; btn.classList.add('recording');
-    recognition.onresult = (e) => {
-        const ta = document.getElementById(targetId);
-        let t = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
-        ta.value += (ta.value ? '\n' : '') + t;
-    };
-    recognition.onend = () => { btn.textContent = '🎤 音声入力'; btn.classList.remove('recording'); currentTarget = null; };
-    recognition.onerror = () => { btn.textContent = '🎤 音声入力'; btn.classList.remove('recording'); currentTarget = null; };
-    recognition.start();
 }
 
 // ===== 事前登録 =====
