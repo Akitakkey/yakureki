@@ -116,6 +116,12 @@
             width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;
             font-size: 13px; font-family: 'Meiryo', sans-serif; resize: vertical; line-height: 1.8; background: #fafafa;
         }
+        .output-div {
+            width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; font-family: 'Meiryo', sans-serif; line-height: 1.8; background: #fafafa;
+            white-space: pre-wrap; min-height: 360px; outline: none; cursor: text;
+        }
+        .output-div:focus { border-color: #2c5f8a; box-shadow: 0 0 0 2px rgba(44,95,138,0.15); }
 
         .btn { padding: 9px 18px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
         .btn-green  { background: #38a169; color: #fff; } .btn-green:hover  { background: #2f855a; }
@@ -359,7 +365,9 @@
         <div class="output-box-header">
             <span class="output-box-title" id="output-patient-label">生成結果</span>
         </div>
-        <textarea class="output-textarea" id="output-all" rows="20"></textarea>
+        <div contenteditable="true" class="output-div" id="output-all"
+            onfocus="this.style.borderColor='#2c5f8a';this.style.boxShadow='0 0 0 2px rgba(44,95,138,0.15)'"
+            onblur="this.style.borderColor='#ddd';this.style.boxShadow='none'"></div>
     </div>
     <div style="display:flex; gap:10px; margin-bottom:20px;">
         <button class="btn btn-green btn-full" onclick="addToList()">✚ 一覧に追加して次の患者へ</button>
@@ -560,6 +568,14 @@ async function testSlackBot(btn) {
 // ===== HTML エスケープ =====
 function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ===== 太字レンダリング（**text** → <strong>text</strong>）=====
+function renderBold(text) {
+    return text.split(/(\*\*[\s\S]+?\*\*)/).map((part, i) => {
+        if (i % 2 === 1) return `<strong>${escHtml(part.slice(2, -2))}</strong>`;
+        return escHtml(part);
+    }).join('');
 }
 
 // ===== 文字正規化 =====
@@ -856,8 +872,8 @@ ${prevRecord}
 ⑥OP：以下の2ステップで処理する。
 【ステップ1：完全コピー】前回の記録からOPセクションを一字一句変えずにそのままコピーする。タイトルは ##OP## とする。要約・省略・言い換え・並び替えは完全禁止。前回OPが長くても必ず全文を出力すること。文字・記号・改行・スペースを含め一字一句完全に同一のテキストを出力すること。途中で切らない。
 【ステップ2：追記のみ】コピーしたOP内に以下の追記を行う：
-・薬剤の変更（増量・減量・追加・中止など）があった場合、まずOP全体の＃プロブレム一覧を見渡し、その薬剤に最も関連する既存プロブレムを探す。見つかったプロブレムブロックの詳細末尾（次の＃の直前）に1行追加する：
-　${reiwaStr}.{月}　{薬剤名}　{変更内容}（{理由}）
+・薬剤の変更（増量・減量・追加・中止など）があった場合、まずOP全体の＃プロブレム一覧を見渡し、その薬剤に最も関連する既存プロブレムを探す。見つかったプロブレムブロックの詳細末尾（次の＃の直前）に1行追加する（必ず ** で囲んで太字マーカーを付けること）：
+　**${reiwaStr}.{月}　{薬剤名}　{変更内容}（{理由}）**
 　※少しでも関連する既存プロブレムがあれば必ずそこに追記すること。新規プロブレムは最終手段。
 　※複数の薬剤が変更された場合は、それぞれ最も関連するプロブレムに個別に追記する。
 ・新規プロブレムを追加する場合：プロブレム名は必ず疾患名・病態名とする（薬剤名をそのままプロブレム名にしてはならない）。
@@ -912,7 +928,7 @@ async function generate() {
         const prompt = buildYakurekiPrompt(currentS, currentO, prevRecord);
         const text = normalizeText(await callClaude(apiKey, prompt));
         document.getElementById('output-patient-label').textContent = `${patientLabel}　${point}`;
-        document.getElementById('output-all').value = text;
+        document.getElementById('output-all').innerHTML = renderBold(text);
         document.getElementById('output-area').style.display = 'block';
         document.getElementById('output-area').scrollIntoView({ behavior: 'smooth' });
     } catch (e) {
@@ -951,11 +967,12 @@ async function batchGenerate() {
         try {
             const prompt = buildYakurekiPrompt('', p.currentO || '', p.prevRecord);
             const text = normalizeText(await callClaude(apiKey, prompt));
-            patients.push({ label: p.name, point, content: text });
+            const cleanText = text.replace(/\*\*/g, '');
+            patients.push({ label: p.name, point, content: cleanText });
             roster[p.rosterIndex].done = true;
             saveRoster();
             savePatientsStore();
-            saveHistoryFor(p.name, text);
+            saveHistoryFor(p.name, cleanText);
             renderRoster();
             renderList();
         } catch (e) {
@@ -994,7 +1011,7 @@ const patients = [];
 
 function addToList() {
     const point   = document.getElementById('pointInput').value.trim();
-    const content = document.getElementById('output-all').value.trim();
+    const content = document.getElementById('output-all').innerText.trim();
     const label   = pendingRosterIndex >= 0 ? roster[pendingRosterIndex].name : `患者${patients.length + 1}`;
 
     patients.push({ label, point, content });
