@@ -2,9 +2,16 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>訪問薬剤師 薬歴入力支援</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='10' y='35' width='80' height='30' rx='15' fill='%232c5f8a'/><rect x='10' y='35' width='40' height='30' rx='15' fill='%2363b3ed'/><text x='50' y='80' font-size='12' text-anchor='middle' fill='%23fff' font-family='sans-serif'>薬</text></svg>">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="薬歴">
+    <meta name="theme-color" content="#2c5f8a">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -13,6 +20,7 @@
             background: #f0f4f8;
             color: #333;
             padding: 20px;
+            padding-bottom: calc(20px + env(safe-area-inset-bottom));
             max-width: 1400px;
             margin: 0 auto;
         }
