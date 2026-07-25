@@ -245,10 +245,6 @@
         <label style="min-width:160px;">Claude APIキー：</label>
         <input type="password" id="apiKey" placeholder="sk-ant-... のキーを入力してください" oninput="localStorage.setItem('anthropicKey', this.value); updateSettingsStatus();" style="flex:1;">
     </div>
-    <div style="display:flex; align-items:flex-start; gap:10px; width:100%;">
-        <label style="min-width:160px; white-space:nowrap; padding-top:6px;">Slack Bot Token：</label>
-        <div id="slackTokenSection" style="flex:1; display:flex; align-items:center; gap:8px;"></div>
-    </div>
     <div style="display:flex; align-items:center; gap:10px; width:100%;">
         <label style="min-width:160px; white-space:nowrap;">Slack Channel ID：</label>
         <input type="text" id="slackChannelId" placeholder="例: C01234ABCDE" oninput="localStorage.setItem('slackChannelId', this.value); updateSettingsStatus();" style="flex:1;">
@@ -400,7 +396,6 @@
 
 <script>
 // ===== 初期化 =====
-let slackTokenLocked = true;
 let isGenerating = false;
 let pendingRosterIndex = -1;  // generate() 開始時のcurrentRosterIndexを固定保持
 
@@ -411,7 +406,7 @@ window.addEventListener('load', () => {
     if (chId) document.getElementById('slackChannelId').value = chId;
     const proxyUrl = localStorage.getItem('slackProxyUrl');
     if (proxyUrl) document.getElementById('slackProxyUrl').value = proxyUrl;
-    renderSlackTokenSection();
+    localStorage.removeItem('slackBotToken'); // 旧方式の残存データを消去（トークンはGAS Proxy側のScript Propertiesに移行済み）
     updateSettingsStatus();
     loadRoster();
     loadPatientsStore();
@@ -489,11 +484,10 @@ function toggleSettings() {
 
 function updateSettingsStatus() {
     const apiSet = !!localStorage.getItem('anthropicKey');
-    const tokenSet = !!localStorage.getItem('slackBotToken');
     const chSet = !!localStorage.getItem('slackChannelId');
     const proxySet = !!localStorage.getItem('slackProxyUrl');
     document.getElementById('settings-status').innerHTML =
-        `APIキー ${apiSet ? '✅' : '❌'}　Slack ${tokenSet && chSet && proxySet ? '🔒✅' : '❌'}`;
+        `APIキー ${apiSet ? '✅' : '❌'}　Slack ${chSet && proxySet ? '🔒✅' : '❌'}`;
 }
 
 // GASプロキシ経由でSlackに送る共通関数（CORS回避のため text/plain でJSON送信）
@@ -510,60 +504,21 @@ async function callProxy(payload) {
     return res.json();
 }
 
-function renderSlackTokenSection() {
-    const container = document.getElementById('slackTokenSection');
-    const token = localStorage.getItem('slackBotToken') || '';
-
-    if (token && slackTokenLocked) {
-        const tail = token.slice(-6);
-        container.innerHTML = `
-            <span class="slack-url-display">🔒 xoxb-***${tail}</span>
-            <button class="btn btn-gray btn-sm" onclick="unlockSlackToken()">✏️ 編集</button>
-        `;
-    } else {
-        container.innerHTML = `
-            <input type="password" id="slackTokenInput" placeholder="xoxb-..." value="${token.replace(/"/g, '&quot;')}" style="flex:1; padding:6px 10px; border:1px solid #ccc; border-radius:4px; font-size:13px; font-family:monospace;">
-            <button class="btn btn-blue btn-sm" onclick="saveSlackToken()">💾 保存</button>
-        `;
-    }
-}
-
-function unlockSlackToken() {
-    if (!confirm('Slack Bot Tokenを変更しますか？\n誤ったTokenを設定すると、意図しないワークスペース／チャンネルに患者情報が送信される恐れがあります。')) return;
-    slackTokenLocked = false;
-    renderSlackTokenSection();
-}
-
-function saveSlackToken() {
-    const input = document.getElementById('slackTokenInput');
-    const token = input.value.trim();
-    if (token && !token.startsWith('xoxb-')) {
-        if (!confirm('Bot Tokenは通常「xoxb-」で始まります。このまま保存しますか？')) return;
-    }
-    localStorage.setItem('slackBotToken', token);
-    slackTokenLocked = true;
-    renderSlackTokenSection();
-    updateSettingsStatus();
-}
-
 async function testSlackBot(btn) {
-    const token = localStorage.getItem('slackBotToken') || '';
     const channelId = (localStorage.getItem('slackChannelId') || '').trim();
     const proxyUrl = (localStorage.getItem('slackProxyUrl') || '').trim();
-    if (!token)     { alert('Slack Bot Tokenが未設定です。'); return; }
     if (!channelId) { alert('Channel IDが未設定です。'); return; }
     if (!proxyUrl)  { alert('GAS Proxy URLが未設定です。'); return; }
-    const tail = token.slice(-6);
-    if (!confirm(`テスト送信を実行します。よろしいですか？\n\nToken末尾: ***${tail}\nChannel ID: ${channelId}\n内容: 接続確認メッセージのみ（患者情報は含みません）`)) return;
+    if (!confirm(`テスト送信を実行します。よろしいですか？\n\nChannel ID: ${channelId}\n内容: 接続確認メッセージのみ（患者情報は含みません）`)) return;
 
     btn.disabled = true;
     btn.textContent = '送信中…';
     try {
-        const data = await callProxy({ mode: 'test', token, channelId });
+        const data = await callProxy({ mode: 'test', channelId });
         if (data.ok) {
             alert('テスト送信成功。\nSlackで想定したチャンネルに届いているか確認してください。');
         } else {
-            alert(`エラー: ${data.error}\n\n主な原因:\n・Bot Tokenが間違っている（invalid_auth）\n・Channel IDが間違っている（channel_not_found）\n・Botがチャンネルに招待されていない（not_in_channel）→ /invite @botname を実行\n・スコープ不足（missing_scope）→ chat:write / files:write を付与して再インストール`);
+            alert(`エラー: ${data.error}\n\n主な原因:\n・GAS Proxy側のSLACK_BOT_TOKEN設定が間違っている（invalid_auth）\n・Channel IDが間違っている（channel_not_found）\n・Botがチャンネルに招待されていない（not_in_channel）→ /invite @botname を実行\n・スコープ不足（missing_scope）→ chat:write / files:write を付与して再インストール`);
         }
     } catch (e) {
         alert(`送信エラー: ${e.message}\n\nGAS Proxyに到達できていない可能性があります。\n・URLが正しいか確認（末尾が /exec）\n・GASのデプロイで「アクセスできるユーザー」が「全員」になっているか確認`);
@@ -1143,10 +1098,8 @@ function downloadAll() {
 
 function openSlackModal() {
     if (patients.length === 0) return;
-    const token    = localStorage.getItem('slackBotToken') || '';
     const channelId = (localStorage.getItem('slackChannelId') || '').trim();
     const proxyUrl  = (localStorage.getItem('slackProxyUrl') || '').trim();
-    if (!token)     { alert('Slack Bot Tokenが未設定です。\n右上「⚙️ 設定」から登録してください。'); return; }
     if (!channelId) { alert('Slack Channel IDが未設定です。\n右上「⚙️ 設定」から登録してください。'); return; }
     if (!proxyUrl)  { alert('GAS Proxy URLが未設定です。\n右上「⚙️ 設定」から登録してください。'); return; }
 
@@ -1190,14 +1143,13 @@ function closeSlackModal() {
 
 async function confirmSendToSlack(btn) {
     const comment   = document.getElementById('slackCommentInput').value.trim();
-    const token     = localStorage.getItem('slackBotToken') || '';
     const channelId = (localStorage.getItem('slackChannelId') || '').trim();
     const filename  = buildFilename();
     const content   = buildFileContent();
 
     btn.disabled = true; btn.textContent = '送信中…';
     try {
-        const data = await callProxy({ token, channelId, filename, content, initialComment: comment });
+        const data = await callProxy({ channelId, filename, content, initialComment: comment });
         if (!data.ok) throw new Error(data.error || 'unknown error');
         const sentCount = patients.length;
         closeSlackModal();
@@ -1206,7 +1158,7 @@ async function confirmSendToSlack(btn) {
         document.getElementById('list-area').style.display = 'none';
         alert(`${sentCount}名分をSlackに送信しました。\nファイル名: ${filename}`);
     } catch (e) {
-        alert(`送信エラー: ${e.message}\n\n主な原因:\n・Bot Tokenが間違っている（invalid_auth）\n・Channel IDが間違っている（channel_not_found）\n・Botがチャンネルに招待されていない（not_in_channel）→ /invite @botname\n・スコープ不足（missing_scope）→ files:write / chat:write を付与して再インストール\n・GAS Proxy URLが間違っている／GASのアクセス権限が「全員」になっていない`);
+        alert(`送信エラー: ${e.message}\n\n主な原因:\n・GAS Proxy側のSLACK_BOT_TOKEN設定が間違っている（invalid_auth）\n・Channel IDが間違っている（channel_not_found）\n・Botがチャンネルに招待されていない（not_in_channel）→ /invite @botname\n・スコープ不足（missing_scope）→ files:write / chat:write を付与して再インストール\n・GAS Proxy URLが間違っている／GASのアクセス権限が「全員」になっていない`);
     } finally {
         btn.disabled = false; btn.textContent = '▶ 送信する';
     }
