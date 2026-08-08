@@ -83,6 +83,22 @@
         }
         .point-btn:hover { background: #e8f4fd; }
         .point-btn.selected { background: #2c5f8a; color: #fff; }
+        .point-sub { font-size: 10px; font-weight: normal; opacity: 0.75; margin-left: 5px; }
+
+        /* 加算ボタン。基本点数（青）と区別するためオレンジ系にしている。
+           麻薬・TPNのONは点数に足すだけでなく、OPへの必須＃ブロック挿入の
+           発火点にもなる（ensureMandatoryBlocks）。小児は点数のみ。 */
+        .kasan-btn {
+            padding: 7px 14px; border: 2px solid #c2703a; border-radius: 20px;
+            background: #fff; color: #c2703a; font-size: 13px; font-weight: bold; cursor: pointer; transition: all 0.15s;
+        }
+        .kasan-btn:hover { background: #fdf1e8; }
+        .kasan-btn.selected { background: #c2703a; color: #fff; }
+        .point-total {
+            margin-top: 10px; font-size: 13px; font-weight: bold; color: #2c5f8a;
+            background: #eef4f9; border-radius: 6px; padding: 7px 10px;
+        }
+        .point-total.none { color: #888; font-weight: normal; background: #f2f2f2; }
 
         /* 算定点数＋生成ボタンの横並び行 */
         .generate-row {
@@ -114,6 +130,10 @@
 
         .error-msg {
             background: #fff5f5; border: 1px solid #fc8181; color: #c53030;
+            padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 16px;
+        }
+        .info-msg {
+            background: #fdf6ec; border: 1px solid #e0a96d; color: #8a5a20;
             padding: 12px; border-radius: 8px; font-size: 13px; margin-bottom: 16px;
         }
 
@@ -295,7 +315,6 @@
         <div class="roster-footer">
             <span id="roster-count" style="font-size:12px; color:#555;"></span>
             <div style="display:flex; gap:8px;">
-                <button id="batchGenerateBtn" class="btn btn-blue btn-sm" onclick="batchGenerate()">▶▶ 一括作成</button>
                 <button class="btn btn-red btn-sm" onclick="clearRoster()">本日の登録をクリア</button>
             </div>
         </div>
@@ -342,12 +361,20 @@
             <div class="point-select-inline">
                 <span class="point-label">算定点数</span>
                 <div class="point-btns">
-                    <button class="point-btn" onclick="selectPoint(this,'518点')">518点</button>
-                    <button class="point-btn" onclick="selectPoint(this,'618点')">618点</button>
-                    <button class="point-btn" onclick="selectPoint(this,'650点')">650点</button>
+                    <button class="point-btn" onclick="selectPoint(this,518)">518点<span class="point-sub">介護</span></button>
+                    <button class="point-btn" onclick="selectPoint(this,650)">650点<span class="point-sub">医療</span></button>
                     <button class="point-btn" onclick="selectPoint(this,'other')">その他</button>
                 </div>
-                <input type="text" id="pointInput" placeholder="点数を入力" style="display:none; margin-top:8px;">
+                <input type="text" id="pointOther" placeholder="点数を入力" style="display:none; margin-top:8px;" oninput="updatePointUI()">
+                <span class="point-label" style="margin-top:10px;display:block;">加算</span>
+                <div class="point-btns">
+                    <button class="kasan-btn" onclick="toggleKasan(this,'opioid')">麻薬 +100点</button>
+                    <button class="kasan-btn" onclick="toggleKasan(this,'tpn')">TPN +150点</button>
+                    <button class="kasan-btn" onclick="toggleKasan(this,'shoni')">小児 +450点</button>
+                </div>
+                <div class="point-total none" id="pointTotal">算定点数を選択してください</div>
+                <!-- 最終的な点数文字列。既存コードはここを読む -->
+                <input type="hidden" id="pointInput">
             </div>
             <button class="generate-btn" onclick="generate()">▶ 補助薬歴を作成</button>
         </div>
@@ -652,12 +679,126 @@ function convertRx(target) {
 }
 
 // ===== 算定点数 =====
+// 基本点数は518点（介護）／650点（医療）の2つで固定。618点のような値は
+// 「基本＋麻薬加算100点」を1つの数字に潰したものだったので、加算トグルで表現する。
+// ★点数を変えるときはこの2つの定義だけ直せばよい。
+const KASAN_DEFS = {
+    opioid: { label: '麻薬', points: 100 },
+    tpn   : { label: 'TPN',  points: 150 },
+    shoni : { label: '小児', points: 450 }
+};
+
+let basePoint = null;   // 518 | 650 | 'other' | null
+let kasan = { opioid: false, tpn: false, shoni: false };
+
 function selectPoint(btn, value) {
     document.querySelectorAll('.point-btn').forEach(b => b.classList.remove('selected'));
     btn.classList.add('selected');
-    const input = document.getElementById('pointInput');
-    if (value === 'other') { input.style.display = 'block'; input.value = ''; input.focus(); }
-    else { input.style.display = 'none'; input.value = value; }
+    basePoint = value;
+    const other = document.getElementById('pointOther');
+    other.style.display = value === 'other' ? 'block' : 'none';
+    if (value === 'other') other.focus(); else other.value = '';
+    updatePointUI();
+}
+
+function toggleKasan(btn, key) {
+    kasan[key] = !kasan[key];
+    btn.classList.toggle('selected', kasan[key]);
+    updatePointUI();
+}
+
+// 「518点＋麻薬100点＋TPN150点」の形。基本点数が未選択なら空文字を返す。
+function buildPointText() {
+    let baseNum;
+    if (basePoint === 'other') {
+        const m = document.getElementById('pointOther').value.match(/\d+/);
+        if (!m) return '';
+        baseNum = Number(m[0]);
+    } else if (typeof basePoint === 'number') {
+        baseNum = basePoint;
+    } else {
+        return '';
+    }
+    const parts = [`${baseNum}点`];
+    Object.keys(KASAN_DEFS).forEach(k => {
+        if (kasan[k]) parts.push(`${KASAN_DEFS[k].label}${KASAN_DEFS[k].points}点`);
+    });
+    return parts.join('＋');
+}
+
+function updatePointUI() {
+    const text = buildPointText();
+    document.getElementById('pointInput').value = text;
+    const el = document.getElementById('pointTotal');
+    if (!text) {
+        el.textContent = '算定点数を選択してください';
+        el.className = 'point-total none';
+        return;
+    }
+    const sum = text.split('＋').reduce((a, s) => a + Number((s.match(/(\d+)点/) || [0, 0])[1]), 0);
+    el.textContent = `${text}　＝　合計 ${sum}点`;
+    el.className = 'point-total';
+}
+
+function resetPointUI() {
+    basePoint = null;
+    kasan = { opioid: false, tpn: false, shoni: false };
+    document.querySelectorAll('.point-btn, .kasan-btn').forEach(b => b.classList.remove('selected'));
+    const other = document.getElementById('pointOther');
+    other.value = '';
+    other.style.display = 'none';
+    updatePointUI();
+}
+
+// ===== 算定要件の必須＃ブロック =====
+// 麻薬・TPNの加算をONにしたとき、OPに該当の＃が無ければアプリ側で足す。
+// 本アプリのOPは「前回の記録から一字一句コピー」なので、前回すでに入っていれば
+// そのまま引き継がれる。ここは加算を新たに算定し始めたときの穴埋め。
+// ★文面を変えるときはこの定数だけ直せばよい（初回薬歴アプリと同じ文面）。
+const OPIOID_BLOCK = [
+    '＃がん性疼痛、医療用麻薬使用状況',
+    '　①麻薬の保管管理状況：施設で管理',
+    '　②服薬状況：今回初回介入。次回以降で評価',
+    '　③レスキューの残薬状況等：',
+    '　⑤疼痛緩和等の状況：介入時は問題なし。',
+    '　⑥継続又は増量投与による体調の変化：今回初回介入。次回以降で評価',
+    '　⑦残薬の廃棄方法：原則保険薬局へ返納するよう説明'
+].join('\n');
+
+const TPN_BLOCK = [
+    '＃在宅中心静脈栄養使用中',
+    '　①輸液製剤の投与状況：「薬品名」を1本/24hで使用',
+    '　②保管管理状況：居室で密閉暗所で管理',
+    '　③残薬の状況：次回の輸液配薬まで残あることを確認',
+    '　④栄養状態等の状況：大きな問題になるようなことは無し。',
+    '　⑤輸液製剤による体調の変化：特になし',
+    '　⑥薬剤の配合変化：単味であり問題なし'
+].join('\n');
+
+// 生成結果のテキストに、ONにした加算の＃ブロックが無ければ ##OP## の直後に挿入する。
+// 加算OFFなのに＃が入っている場合の自動削除はしない（前回記録の内容を勝手に消さない）。
+// 戻り値: { text, inserted:[ラベル] }
+function ensureMandatoryBlocks(text, flags) {
+    const specs = [
+        { on: flags.opioid, label: '麻薬', re: /医療用麻薬使用状況/, block: OPIOID_BLOCK },
+        { on: flags.tpn,    label: 'TPN',  re: /在宅中心静脈栄養/,   block: TPN_BLOCK }
+    ].filter(s => s.on);
+    if (specs.length === 0) return { text, inserted: [] };
+
+    // OPは出力の最終セクション。見出し行の直後に差し込む。
+    const m = /^##OP##[^\n]*\n?/m.exec(text);
+    if (!m) return { text, inserted: [] };
+    const cut  = m.index + m[0].length;
+    const head = text.slice(0, cut);
+    const rest = text.slice(cut);
+
+    const add = specs.filter(s => !s.re.test(rest));
+    if (add.length === 0) return { text, inserted: [] };
+
+    return {
+        text: head + add.map(s => s.block).join('\n\n') + '\n\n' + rest.replace(/^\n+/, ''),
+        inserted: add.map(s => s.label)
+    };
 }
 
 // ===== 事前登録 =====
@@ -893,10 +1034,16 @@ async function generate() {
 
     try {
         const prompt = buildYakurekiPrompt(currentS, currentO, prevRecord);
-        const text = normalizeText(await callClaude(apiKey, prompt));
+        // 生成中に加算トグルを触られても結果がブレないよう、開始時点の状態を固定する
+        const flags = { ...kasan };
+        const raw = normalizeText(await callClaude(apiKey, prompt));
+        const { text, inserted } = ensureMandatoryBlocks(raw, flags);
         document.getElementById('output-patient-label').textContent = `${patientLabel}　${point}`;
         document.getElementById('output-all').innerHTML = renderBold(text);
         document.getElementById('output-area').style.display = 'block';
+        if (inserted.length > 0) {
+            errorArea.innerHTML = `<div class="info-msg">ℹ️ ${inserted.join('・')}加算の算定要件ブロックがOPに無かったため、テンプレートを挿入しました。内容を確認して修正してください。</div>`;
+        }
         document.getElementById('output-area').scrollIntoView({ behavior: 'smooth' });
     } catch (e) {
         errorArea.innerHTML = `<div class="error-msg">⚠️ エラーが発生しました：${e.message}</div>`;
@@ -905,71 +1052,6 @@ async function generate() {
         document.getElementById('loading').style.display = 'none';
         document.querySelector('.generate-btn').disabled = false;
         renderRoster();
-    }
-}
-
-// ===== 一括薬歴生成（並列実行・CONCURRENCY=3）=====
-async function batchGenerate() {
-    const apiKey    = document.getElementById('apiKey').value.trim();
-    const point     = document.getElementById('pointInput').value.trim();
-    const errorArea = document.getElementById('error-area');
-    errorArea.innerHTML = '';
-
-    if (!apiKey) { errorArea.innerHTML = '<div class="error-msg">⚠️ Gemini APIキーを入力してください。</div>'; return; }
-    if (!point)  { errorArea.innerHTML = '<div class="error-msg">⚠️ 算定点数を選択または入力してください。</div>'; return; }
-
-    const targets = roster.map((p, i) => ({ ...p, rosterIndex: i })).filter(p => !p.done);
-    if (targets.length === 0) { alert('未処理の患者がいません。'); return; }
-
-    const btn = document.getElementById('batchGenerateBtn');
-    btn.disabled = true;
-    document.querySelector('.generate-btn').disabled = true;
-    isGenerating = true;
-
-    const errors = [];
-    let completed = 0;
-    const CONCURRENCY = 3;
-
-    const processOne = async (p) => {
-        try {
-            const prompt = buildYakurekiPrompt('', p.currentO || '', p.prevRecord);
-            const text = normalizeText(await callClaude(apiKey, prompt));
-            const cleanText = text.replace(/\*\*/g, '');
-            patients.push({ label: p.name, point, content: cleanText });
-            roster[p.rosterIndex].done = true;
-            saveRoster();
-            savePatientsStore();
-            saveHistoryFor(p.name, cleanText);
-            renderRoster();
-            renderList();
-        } catch (e) {
-            errors.push(`${p.name}：${e.message}`);
-        } finally {
-            completed++;
-            btn.textContent = `⏳ ${completed}/${targets.length} 処理中…`;
-        }
-    };
-
-    // Concurrencyを制限したワーカープール
-    const queue = [...targets];
-    const workerCount = Math.min(CONCURRENCY, queue.length);
-    await Promise.all(Array.from({ length: workerCount }, async () => {
-        while (queue.length > 0) {
-            const p = queue.shift();
-            if (p) await processOne(p);
-        }
-    }));
-
-    isGenerating = false;
-    btn.disabled = false;
-    btn.textContent = '▶▶ 一括作成';
-    document.querySelector('.generate-btn').disabled = false;
-
-    if (errors.length > 0) {
-        errorArea.innerHTML = `<div class="error-msg">⚠️ 一部エラーが発生しました：<br>${errors.join('<br>')}</div>`;
-    }
-    if (patients.length > 0) {
-        document.getElementById('list-area').scrollIntoView({ behavior: 'smooth' });
     }
 }
 
@@ -995,12 +1077,11 @@ function addToList() {
         pendingRosterIndex = -1;
     }
 
-    document.getElementById('pointInput').value = '';
-    document.getElementById('pointInput').style.display = 'none';
+    // 次の患者に麻薬・TPNの加算を持ち越さないよう、点数と加算は毎回リセットする
+    resetPointUI();
     document.getElementById('currentS').value = '';
     document.getElementById('currentO').value = '';
     document.getElementById('prevRecord').value = '';
-    document.querySelectorAll('.point-btn').forEach(b => b.classList.remove('selected'));
     document.getElementById('output-area').style.display = 'none';
     document.getElementById('error-area').innerHTML = '';
 
@@ -1025,7 +1106,7 @@ function renderList() {
                         title="クリックして名前を編集">
                     <input type="text" class="patient-point-edit"
                         onclick="event.stopPropagation()"
-                        style="font-size:12px; color:#666; border:1px solid transparent; border-radius:4px; padding:2px 5px; background:transparent; width:58px; cursor:text; font-family:inherit;"
+                        style="font-size:12px; color:#666; border:1px solid transparent; border-radius:4px; padding:2px 5px; background:transparent; width:190px; cursor:text; font-family:inherit;"
                         title="クリックして点数を編集">
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;">
