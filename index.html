@@ -550,6 +550,7 @@ function normalizeText(text) {
         .replace(/[０-９]/g, s => String.fromCharCode(s.charCodeAt(0)-0xFEE0))
         .replace(/[Ａ-Ｚ]/g, s => String.fromCharCode(s.charCodeAt(0)-0xFEE0))
         .replace(/[ａ-ｚ]/g, s => String.fromCharCode(s.charCodeAt(0)-0xFEE0))
+        .replace(/．/g, '.')
         .replace(/(\d)X/g, '$1×');
 }
 
@@ -570,10 +571,13 @@ function convertRx(target) {
 
     const externalKw = ['軟膏','クリーム','テープ','パップ','点眼','点鼻','点耳','ゲル','ローション','坐剤','坐薬','湿布','スプレー','外用液','吸入液','貼付'];
     const saltRe = /(塩酸塩|硫酸塩|酢酸塩|硝酸塩|マレイン酸塩|フマル酸塩|臭化水素酸塩|塩酸|フマル酸|マレイン酸)(?=(錠|カプセル|Cap|軟膏|クリーム|ゲル|液|テープ|パップ|散|顆粒|細粒))/g;
-    const dosageRe = /1日|頓服|頓用/;
+    // 続き行の判定：頻度語（1日/頓服/頓用）に加え、外用薬のように頻度語を伴わず
+    // 部位＋数量だけが書かれる行（例：気管切開部　10ｇ）も拾えるよう数量・日数パターンも含める
+    const dosageRe = /1日|頓服|頓用|日分|\d+(?:\.\d+)?\s*(g|mL|ml|枚|個|本|パック)/i;
 
     // MUSUBIコピペで薬品名と用法が別行になるケースを結合
-    const rawLines = raw.split('\n').map(l => l.trim()).filter(l => l);
+    // 全角「１日」と半角「1日」が混在する入力でも結合判定できるよう、先に幅を正規化しておく
+    const rawLines = raw.split('\n').map(l => normalizeText(l.trim())).filter(l => l);
     const blocks = [];
     for (const line of rawLines) {
         if (blocks.length > 0 && dosageRe.test(line) && !dosageRe.test(blocks[blocks.length-1])) {
