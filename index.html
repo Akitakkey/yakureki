@@ -461,22 +461,31 @@ function getHistoryFor(name) {
     return loadHistory()[name] || null;
 }
 
+// 完全一致があればそれのみ、無ければ2文字以上の前方一致で候補を返す
+function findHistoryMatches(name) {
+    const history = loadHistory();
+    if (history[name]) return [name];
+    if (name.length < 2) return [];
+    return Object.keys(history).filter(k => k.startsWith(name));
+}
+
 function onRosterNameInput() {
     const name = document.getElementById('rosterInitial').value.trim();
     const indicator = document.getElementById('rosterHistoryIndicator');
-    if (!name) { indicator.innerHTML = ''; return; }
-    const h = getHistoryFor(name);
-    if (h) {
-        indicator.innerHTML = '';
+    indicator.innerHTML = '';
+    if (!name) return;
+    const matches = findHistoryMatches(name);
+    matches.forEach(key => {
+        const h = getHistoryFor(key);
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.textContent = `📚 前回の記録を履歴から読み込む（${h.date}）`;
-        btn.style.cssText = 'margin-top:6px; font-size:12px; padding:5px 10px; background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:6px; cursor:pointer;';
-        btn.onclick = () => loadHistoryToRoster(name);
+        btn.textContent = matches.length > 1
+            ? `📚 ${key}の前回記録を読み込む（${h.date}）`
+            : `📚 前回の記録を履歴から読み込む（${h.date}）`;
+        btn.style.cssText = 'margin-top:6px; margin-right:6px; font-size:12px; padding:5px 10px; background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:6px; cursor:pointer;';
+        btn.onclick = () => loadHistoryToRoster(key);
         indicator.appendChild(btn);
-    } else {
-        indicator.innerHTML = '';
-    }
+    });
 }
 
 function loadHistoryToRoster(name) {
@@ -604,7 +613,11 @@ function convertRx(target) {
 
     // MUSUBIコピペで薬品名と用法が別行になるケースを結合
     // 全角「１日」と半角「1日」が混在する入力でも結合判定できるよう、先に幅を正規化しておく
-    const rawLines = raw.split('\n').map(l => normalizeText(l.trim())).filter(l => l);
+    // MUSUBI画面のアイコン文字（open_in_new 等の英小文字_区切り）がコピペに混ざるので先に除去する
+    // 行頭の箇条書き記号（* や ・）も薬品名に混ざらないよう除去する
+    const rawLines = raw.split('\n')
+        .map(l => normalizeText(l.replace(/\b[a-z]+(?:_[a-z]+)+\b/g, '').trim()).replace(/^[*＊・●■◆-]\s*/, '').trim())
+        .filter(l => l);
     const blocks = [];
     for (const line of rawLines) {
         if (blocks.length > 0 && dosageRe.test(line) && !dosageRe.test(blocks[blocks.length-1])) {
@@ -625,13 +638,11 @@ function convertRx(target) {
         drugName = drugName.replace(/カプセル/g, 'Cap');
 
         const isExternal = externalKw.some(kw => drugName.includes(kw) || s.includes(kw));
-        const daysMatch = s.match(/(\d+)\s*日分/);
-        const days = daysMatch ? daysMatch[1] : '';
 
         if (isExternal) {
             const qMatch = s.match(/(\d+(?:\.\d+)?)\s*(g|mL|ml|枚|個|本|パック)/i);
             const qty = qMatch ? `${qMatch[1]}${qMatch[2].replace('ml','mL')}` : '';
-            results.push(`・${drugName}${qty ? '　' + qty : ''}${days ? '　' + days + '日分' : ''}`);
+            results.push(`・${drugName}${qty ? '　' + qty : ''}`);
             continue;
         }
 
@@ -640,10 +651,13 @@ function convertRx(target) {
         if (/Cap/i.test(drugName)) unit = 'Cap';
         else if (/包|顆粒|細粒|散|ドライシロップ|DS/i.test(drugName)) unit = '包';
 
-        const totalCountMatch = s.match(/1日\s*(\d+(?:\.\d+)?)\s*(錠|カプセル|Cap|C|包)/i);
+        const totalCountMatch = s.match(/1日\s*(\d+(?:\.\d+)?)\s*(錠|カプセル|Cap|C|包|mL)/i);
+        // 内用液など1日量がmLで書かれる薬は単位もmLにする
+        if (totalCountMatch && /^ml$/i.test(totalCountMatch[2])) unit = 'mL';
         const timesMatch = s.match(/1日\s*(\d+)\s*回/);
-        const usageMatch = s.match(/(朝昼夕食前|朝昼夕食後|朝夕食前|朝夕食後|朝昼食前|朝昼食後|昼夕食前|昼夕食後|朝食前|朝食後|昼食前|昼食後|夕食前|夕食後|寝る前|起床時|食前|食後|食間|頓服|頓用)/);
-        const usage = usageMatch ? usageMatch[0] : '';
+        // 「昼食後と就寝前」のように用法が複数並ぶ場合は「昼食後・就寝前」とまとめる
+        const usageMatches = s.match(/(朝昼夕食前|朝昼夕食後|朝夕食前|朝夕食後|朝昼食前|朝昼食後|昼夕食前|昼夕食後|朝食前|朝食後|昼食前|昼食後|夕食前|夕食後|寝る前|就寝前|眠前|起床時|食前|食後|食間|頓服|頓用)/g);
+        const usage = usageMatches ? usageMatches.join('・') : '';
 
         // 回数：「1日X回」優先、なければ用法から推定
         let times = '';
@@ -652,18 +666,18 @@ function convertRx(target) {
         } else if (usage) {
             if (/朝昼夕/.test(usage)) times = '3';
             else if (/朝夕|朝昼|昼夕/.test(usage)) times = '2';
-            else if (/朝食|昼食|夕食|寝る前|起床時/.test(usage)) times = '1';
+            else if (/朝食|昼食|夕食|寝る前|就寝前|眠前|起床時/.test(usage)) times = '1';
         }
 
         // 1回量：明示的なカウント指定があればそれ、なければ1
         const perDose = totalCountMatch ? totalCountMatch[1] : '1';
 
         if (/頓服|頓用/.test(usage)) {
-            results.push(`・${drugName}　頓服${days ? '　' + days + '日分' : ''}`);
+            results.push(`・${drugName}　頓服`);
         } else if (times && usage) {
-            results.push(`・${drugName}　${perDose}${unit}${times}×${usage}${days ? '　' + days + '日分' : ''}`);
+            results.push(`・${drugName}　${perDose}${unit}${times}×${usage}`);
         } else {
-            results.push(`・${drugName}${days ? '　' + days + '日分' : ''}`);
+            results.push(`・${drugName}`);
         }
     }
 
